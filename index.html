@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Inkpath — SVG Drawing Studio</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1a1a1e;
+    --surface: #242428;
+    --surface2: #2e2e34;
+    --border: #3a3a42;
+    --text: #e8e8ec;
+    --text-dim: #8888a0;
+    --accent: #5b8af5;
+    --accent-glow: rgba(91, 138, 245, 0.25);
+    --danger: #e85454;
+    --success: #4ecb71;
+    --toolbar-h: 56px;
+    --sidebar-w: 260px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* ── Toolbar ── */
+  #toolbar {
+    position: fixed; top: 0; left: 0; right: 0;
+    height: var(--toolbar-h);
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 12px;
+    z-index: 100;
+    gap: 6px;
+    backdrop-filter: blur(12px);
+  }
+
+  .tool-group {
+    display: flex; align-items: center; gap: 4px;
+    padding: 0 8px;
+    border-right: 1px solid var(--border);
+    height: 36px;
+  }
+  .tool-group:last-child { border-right: none; }
+
+  .tool-btn {
+    width: 38px; height: 38px;
+    border: none; border-radius: 8px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    position: relative;
+  }
+  .tool-btn:hover { background: var(--surface2); color: var(--text); }
+  .tool-btn.active { background: var(--accent); color: #fff; box-shadow: 0 0 12px var(--accent-glow); }
+  .tool-btn:disabled { opacity: 0.3; pointer-events: none; }
+  .tool-btn svg { width: 20px; height: 20px; }
+
+  .tool-label {
+    font-size: 11px; font-weight: 500;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    padding: 0 6px;
+    white-space: nowrap;
+  }
+
+  /* ── Slider Controls ── */
+  .slider-control {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 8px;
+  }
+  .slider-control label {
+    font-size: 11px; font-weight: 500;
+    color: var(--text-dim);
+    white-space: nowrap;
+    min-width: 56px;
+  }
+  .slider-control input[type="range"] {
+    width: 80px; height: 4px;
+    -webkit-appearance: none;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+  }
+  .slider-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    box-shadow: 0 0 6px var(--accent-glow);
+  }
+  .slider-control .val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text);
+    min-width: 28px;
+    text-align: right;
+  }
+
+  /* ── Color Picker ── */
+  .color-well {
+    width: 30px; height: 30px;
+    border-radius: 6px;
+    border: 2px solid var(--border);
+    cursor: pointer;
+    overflow: hidden;
+    position: relative;
+  }
+  .color-well input[type="color"] {
+    position: absolute;
+    width: 150%; height: 150%;
+    top: -25%; left: -25%;
+    cursor: pointer;
+    border: none;
+    background: none;
+  }
+
+  /* ── Spacer ── */
+  .spacer { flex: 1; }
+
+  /* ── Action Buttons ── */
+  .action-btn {
+    height: 34px;
+    padding: 0 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface2);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  .action-btn:hover { background: var(--border); }
+  .action-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .action-btn.primary:hover { background: #4a7ae4; }
+  .action-btn svg { width: 16px; height: 16px; }
+
+  /* ── Canvas Area ── */
+  #canvas-container {
+    position: fixed;
+    top: var(--toolbar-h); left: 0; right: 0; bottom: 0;
+    overflow: hidden;
+    background: var(--bg);
+    /* Checkerboard pattern */
+    background-image:
+      linear-gradient(45deg, #1e1e22 25%, transparent 25%),
+      linear-gradient(-45deg, #1e1e22 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #1e1e22 75%),
+      linear-gradient(-45deg, transparent 75%, #1e1e22 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+  }
+
+  #drawing-canvas {
+    position: absolute;
+    transform-origin: 0 0;
+    cursor: crosshair;
+  }
+
+  #drawing-canvas.eraser-mode {
+    cursor: none;
+  }
+
+  /* ── Eraser Cursor ── */
+  #eraser-cursor {
+    position: fixed;
+    pointer-events: none;
+    border: 2px solid rgba(232, 84, 84, 0.7);
+    border-radius: 50%;
+    display: none;
+    z-index: 200;
+    mix-blend-mode: difference;
+  }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed;
+    bottom: 24px; left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 20px;
+    font-size: 13px;
+    color: var(--text);
+    z-index: 500;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: none;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── Status Bar ── */
+  #status-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 28px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    gap: 16px;
+    z-index: 100;
+  }
+
+  /* ── File Input (hidden) ── */
+  #file-input { display: none; }
+
+  /* ── Keyboard Shortcut Hints ── */
+  .shortcut {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    background: var(--bg);
+    border-radius: 3px;
+    padding: 1px 4px;
+    position: absolute;
+    bottom: 2px; right: 2px;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 1024px) {
+    .slider-control { padding: 0 4px; }
+    .slider-control input[type="range"] { width: 60px; }
+    .slider-control label { min-width: auto; }
+    .tool-label { display: none; }
+    .hide-mobile { display: none; }
+  }
+
+  @media (max-width: 768px) {
+    .action-btn span { display: none; }
+    .action-btn { padding: 0 10px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Toolbar -->
+<div id="toolbar">
+  <div class="tool-group">
+    <button class="tool-btn active" id="btn-pen" title="Pen Tool (P)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/>
+        <circle cx="11" cy="11" r="2"/>
+      </svg>
+    </button>
+    <button class="tool-btn" id="btn-eraser" title="Eraser Tool (E)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 20H7L3 16c-.8-.8-.8-2 0-2.8L14.8 1.4c.8-.8 2-.8 2.8 0l5 5c.8.8.8 2 0 2.8L11 20"/>
+        <path d="M6 11l7 7"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="tool-group">
+    <button class="tool-btn" id="btn-undo" title="Undo (⌘Z)" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+      </svg>
+    </button>
+    <button class="tool-btn" id="btn-redo" title="Redo (⌘⇧Z)" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="slider-control">
+    <label>Stroke</label>
+    <input type="range" id="stroke-width" min="1" max="20" value="2" step="0.5">
+    <span class="val" id="stroke-width-val">2</span>
+  </div>
+
+  <div class="slider-control">
+    <label>Smooth</label>
+    <input type="range" id="smoothing" min="0" max="100" value="50">
+    <span class="val" id="smoothing-val">50</span>
+  </div>
+
+  <div class="tool-group">
+    <div class="color-well" id="color-well">
+      <input type="color" id="stroke-color" value="#e8e8ec">
+    </div>
+  </div>
+
+  <div class="slider-control hide-mobile">
+    <label>Eraser</label>
+    <input type="range" id="eraser-size" min="5" max="80" value="20">
+    <span class="val" id="eraser-size-val">20</span>
+  </div>
+
+  <span class="spacer"></span>
+
+  <button class="action-btn" id="btn-clear" title="Clear Canvas">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+    </svg>
+    <span>Clear</span>
+  </button>
+
+  <button class="action-btn" id="btn-load" title="Load SVG">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+    <span>Load</span>
+  </button>
+
+  <button class="action-btn primary" id="btn-export" title="Export SVG">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+    </svg>
+    <span>Export</span>
+  </button>
+</div>
+
+<!-- Canvas -->
+<div id="canvas-container">
+  <svg id="drawing-canvas" xmlns="http://www.w3.org/2000/svg" width="2048" height="1536">
+    <rect width="100%" height="100%" fill="white" id="canvas-bg"/>
+    <g id="paths-group"></g>
+  </svg>
+</div>
+
+<!-- Eraser Cursor -->
+<div id="eraser-cursor"></div>
+
+<!-- Status Bar -->
+<div id="status-bar">
+  <span id="status-paths">Paths: 0</span>
+  <span id="status-zoom">Zoom: 100%</span>
+  <span id="status-pos">0, 0</span>
+  <span class="spacer"></span>
+  <span id="status-saved">Saved</span>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- Hidden file input -->
+<input type="file" id="file-input" accept=".svg,image/svg+xml">
+
+<script>
+(() => {
+  // ── State ──
+  const state = {
+    tool: 'pen', // 'pen' | 'eraser'
+    paths: [],
+    undoStack: [],
+    redoStack: [],
+    strokeWidth: 2,
+    strokeColor: '#e8e8ec',
+    smoothing: 50,
+    eraserSize: 20,
+    canvasW: 2048,
+    canvasH: 1536,
+    // Viewport transform
+    panX: 0,
+    panY: 0,
+    zoom: 1,
+    // Drawing state
+    isDrawing: false,
+    currentPoints: [],
+    currentPathEl: null,
+    // Gesture state
+    gestureActive: false,
+    lastPinchDist: 0,
+    lastPinchCenter: null,
+    activeTouches: new Map(),
+    penPointerId: null,
+  };
+
+  // ── DOM Refs ──
+  const $ = id => document.getElementById(id);
+  const canvas = $('drawing-canvas');
+  const container = $('canvas-container');
+  const pathsGroup = $('paths-group');
+  const eraserCursor = $('eraser-cursor');
+  const toast = $('toast');
+
+  // ── Toolbar Bindings ──
+  $('btn-pen').addEventListener('click', () => setTool('pen'));
+  $('btn-eraser').addEventListener('click', () => setTool('eraser'));
+  $('btn-undo').addEventListener('click', undo);
+  $('btn-redo').addEventListener('click', redo);
+  $('btn-clear').addEventListener('click', clearCanvas);
+  $('btn-export').addEventListener('click', exportSVG);
+  $('btn-load').addEventListener('click', () => $('file-input').click());
+  $('file-input').addEventListener('change', loadSVG);
+
+  $('stroke-width').addEventListener('input', e => {
+    state.strokeWidth = parseFloat(e.target.value);
+    $('stroke-width-val').textContent = state.strokeWidth;
+    // Update all existing paths' stroke width
+    updateAllPathWidths();
+    saveState();
+  });
+
+  $('smoothing').addEventListener('input', e => {
+    state.smoothing = parseInt(e.target.value);
+    $('smoothing-val').textContent = state.smoothing;
+  });
+
+  $('stroke-color').addEventListener('input', e => {
+    state.strokeColor = e.target.value;
+    $('color-well').style.backgroundColor = e.target.value;
+  });
+
+  $('eraser-size').addEventListener('input', e => {
+    state.eraserSize = parseInt(e.target.value);
+    $('eraser-size-val').textContent = state.eraserSize;
+    eraserCursor.style.width = state.eraserSize + 'px';
+    eraserCursor.style.height = state.eraserSize + 'px';
+  });
+
+  // Initialize color well
+  $('color-well').style.backgroundColor = state.strokeColor;
+
+  function setTool(tool) {
+    state.tool = tool;
+    $('btn-pen').classList.toggle('active', tool === 'pen');
+    $('btn-eraser').classList.toggle('active', tool === 'eraser');
+    canvas.classList.toggle('eraser-mode', tool === 'eraser');
+    eraserCursor.style.display = tool === 'eraser' ? 'block' : 'none';
+    if (tool === 'eraser') {
+      eraserCursor.style.width = state.eraserSize + 'px';
+      eraserCursor.style.height = state.eraserSize + 'px';
+    }
+  }
+
+  function updateAllPathWidths() {
+    state.paths.forEach(p => {
+      if (p.element) {
+        p.element.setAttribute('stroke-width', state.strokeWidth);
+      }
+    });
+  }
+
+  // ── Viewport Transform ──
+  function updateTransform() {
+    canvas.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    $('status-zoom').textContent = `Zoom: ${Math.round(state.zoom * 100)}%`;
+  }
+
+  function screenToCanvas(sx, sy) {
+    const rect = container.getBoundingClientRect();
+    const x = (sx - rect.left - state.panX) / state.zoom;
+    const y = (sy - rect.top - state.panY) / state.zoom;
+    return { x, y };
+  }
+
+  // ── Pointer Events ──
+  container.addEventListener('pointerdown', onPointerDown, { passive: false });
+  container.addEventListener('pointermove', onPointerMove, { passive: false });
+  container.addEventListener('pointerup', onPointerUp, { passive: false });
+  container.addEventListener('pointercancel', onPointerUp, { passive: false });
+
+  // Prevent default touch behaviors
+  container.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+  container.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+  // Wheel zoom
+  container.addEventListener('wheel', e => {
+    e.preventDefault();
+    const rect = container.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    const oldZoom = state.zoom;
+    const delta = -e.deltaY * 0.001;
+    state.zoom = Math.max(0.1, Math.min(10, state.zoom * (1 + delta)));
+
+    // Zoom toward cursor
+    state.panX = mx - (mx - state.panX) * (state.zoom / oldZoom);
+    state.panY = my - (my - state.panY) * (state.zoom / oldZoom);
+
+    updateTransform();
+  }, { passive: false });
+
+  function isPen(e) {
+    return e.pointerType === 'pen';
+  }
+
+  function onPointerDown(e) {
+    e.preventDefault();
+
+    if (isPen(e)) {
+      state.penPointerId = e.pointerId;
+      container.setPointerCapture(e.pointerId);
+      if (state.tool === 'pen') {
+        startDrawing(e);
+      } else if (state.tool === 'eraser') {
+        eraseAt(e.clientX, e.clientY);
+      }
+      return;
+    }
+
+    // Touch: track for pan/pinch
+    if (e.pointerType === 'touch') {
+      state.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      container.setPointerCapture(e.pointerId);
+
+      if (state.activeTouches.size === 2) {
+        state.gestureActive = true;
+        const pts = [...state.activeTouches.values()];
+        state.lastPinchDist = dist(pts[0], pts[1]);
+        state.lastPinchCenter = midpoint(pts[0], pts[1]);
+      } else if (state.activeTouches.size === 1) {
+        state.lastPanPos = { x: e.clientX, y: e.clientY };
+      }
+    }
+
+    // Mouse: allow drawing with mouse too for desktop testing
+    if (e.pointerType === 'mouse') {
+      state.penPointerId = e.pointerId;
+      container.setPointerCapture(e.pointerId);
+      if (state.tool === 'pen') {
+        startDrawing(e);
+      } else if (state.tool === 'eraser') {
+        eraseAt(e.clientX, e.clientY);
+      }
+    }
+  }
+
+  function onPointerMove(e) {
+    e.preventDefault();
+
+    // Update position status
+    const pos = screenToCanvas(e.clientX, e.clientY);
+    $('status-pos').textContent = `${Math.round(pos.x)}, ${Math.round(pos.y)}`;
+
+    // Eraser cursor
+    if (state.tool === 'eraser') {
+      eraserCursor.style.left = (e.clientX - state.eraserSize / 2) + 'px';
+      eraserCursor.style.top = (e.clientY - state.eraserSize / 2) + 'px';
+    }
+
+    if (isPen(e) || e.pointerType === 'mouse') {
+      if (state.isDrawing && e.pointerId === state.penPointerId) {
+        continueDrawing(e);
+      }
+      if (state.tool === 'eraser' && e.pressure > 0 && e.pointerId === state.penPointerId) {
+        eraseAt(e.clientX, e.clientY);
+      }
+      return;
+    }
+
+    // Touch: pan/pinch
+    if (e.pointerType === 'touch' && state.activeTouches.has(e.pointerId)) {
+      state.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (state.activeTouches.size === 2 && state.gestureActive) {
+        const pts = [...state.activeTouches.values()];
+        const newDist = dist(pts[0], pts[1]);
+        const newCenter = midpoint(pts[0], pts[1]);
+
+        // Pinch zoom
+        const scale = newDist / state.lastPinchDist;
+        const oldZoom = state.zoom;
+        state.zoom = Math.max(0.1, Math.min(10, state.zoom * scale));
+
+        const rect = container.getBoundingClientRect();
+        const cx = newCenter.x - rect.left;
+        const cy = newCenter.y - rect.top;
+
+        state.panX = cx - (cx - state.panX) * (state.zoom / oldZoom);
+        state.panY = cy - (cy - state.panY) * (state.zoom / oldZoom);
+
+        // Pan
+        state.panX += newCenter.x - state.lastPinchCenter.x;
+        state.panY += newCenter.y - state.lastPinchCenter.y;
+
+        state.lastPinchDist = newDist;
+        state.lastPinchCenter = newCenter;
+
+        updateTransform();
+      } else if (state.activeTouches.size === 1 && !state.gestureActive && state.lastPanPos) {
+        // Single finger pan
+        state.panX += e.clientX - state.lastPanPos.x;
+        state.panY += e.clientY - state.lastPanPos.y;
+        state.lastPanPos = { x: e.clientX, y: e.clientY };
+        updateTransform();
+      }
+    }
+  }
+
+  function onPointerUp(e) {
+    if ((isPen(e) || e.pointerType === 'mouse') && e.pointerId === state.penPointerId) {
+      if (state.isDrawing) {
+        finishDrawing();
+      }
+      state.penPointerId = null;
+      return;
+    }
+
+    if (e.pointerType === 'touch') {
+      state.activeTouches.delete(e.pointerId);
+      if (state.activeTouches.size < 2) {
+        state.gestureActive = false;
+        if (state.activeTouches.size === 1) {
+          const remaining = [...state.activeTouches.values()][0];
+          state.lastPanPos = { x: remaining.x, y: remaining.y };
+        }
+      }
+    }
+  }
+
+  // ── Drawing ──
+  function startDrawing(e) {
+    state.isDrawing = true;
+    state.currentPoints = [];
+    const pos = screenToCanvas(e.clientX, e.clientY);
+    state.currentPoints.push({ x: pos.x, y: pos.y, pressure: e.pressure || 0.5 });
+
+    // Create a temporary path element
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', state.strokeColor);
+    path.setAttribute('stroke-width', state.strokeWidth);
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('d', `M ${pos.x} ${pos.y}`);
+    pathsGroup.appendChild(path);
+    state.currentPathEl = path;
+  }
+
+  function continueDrawing(e) {
+    if (!state.isDrawing || !state.currentPathEl) return;
+    const pos = screenToCanvas(e.clientX, e.clientY);
+    state.currentPoints.push({ x: pos.x, y: pos.y, pressure: e.pressure || 0.5 });
+
+    // Build path with smoothing
+    const d = buildSmoothPath(state.currentPoints, state.smoothing / 100);
+    state.currentPathEl.setAttribute('d', d);
+  }
+
+  function finishDrawing() {
+    if (!state.currentPathEl || state.currentPoints.length < 2) {
+      // Remove dot paths
+      if (state.currentPathEl) {
+        state.currentPathEl.remove();
+      }
+      state.isDrawing = false;
+      state.currentPathEl = null;
+      state.currentPoints = [];
+      return;
+    }
+
+    const d = buildSmoothPath(state.currentPoints, state.smoothing / 100);
+    state.currentPathEl.setAttribute('d', d);
+
+    // Check if closed (first and last point close enough)
+    const first = state.currentPoints[0];
+    const last = state.currentPoints[state.currentPoints.length - 1];
+    const closeDist = dist(first, last);
+    const closeThreshold = 15 / state.zoom; // scale threshold by zoom
+    const isClosed = closeDist < closeThreshold && state.currentPoints.length > 5;
+
+    if (isClosed) {
+      // Close the path
+      const closedD = d + ' Z';
+      state.currentPathEl.setAttribute('d', closedD);
+    }
+
+    // Store path data
+    const pathData = {
+      d: state.currentPathEl.getAttribute('d'),
+      stroke: state.strokeColor,
+      strokeWidth: state.strokeWidth,
+      element: state.currentPathEl,
+      id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+    };
+
+    // Push to undo
+    state.undoStack.push({ type: 'add', path: pathData });
+    state.redoStack = [];
+
+    state.paths.push(pathData);
+
+    state.isDrawing = false;
+    state.currentPathEl = null;
+    state.currentPoints = [];
+
+    updateUI();
+    saveState();
+  }
+
+  // ── Smoothing: Catmull-Rom to Cubic Bezier ──
+  function buildSmoothPath(points, smoothFactor) {
+    if (points.length < 2) {
+      return `M ${points[0].x} ${points[0].y}`;
+    }
+
+    // Subsample if too many points
+    let pts = points;
+    if (pts.length > 4 && smoothFactor > 0) {
+      const step = Math.max(1, Math.floor(1 + smoothFactor * 3));
+      const sampled = [pts[0]];
+      for (let i = step; i < pts.length - 1; i += step) {
+        sampled.push(pts[i]);
+      }
+      sampled.push(pts[pts.length - 1]);
+      pts = sampled;
+    }
+
+    // Apply Ramer-Douglas-Peucker simplification
+    if (smoothFactor > 0) {
+      const epsilon = smoothFactor * 3;
+      pts = simplifyRDP(pts, epsilon);
+    }
+
+    if (pts.length < 2) {
+      return `M ${points[0].x} ${points[0].y}`;
+    }
+
+    if (pts.length === 2) {
+      return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
+    }
+
+    // Build cubic bezier using Catmull-Rom
+    let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
+    const tension = 1 - smoothFactor * 0.5;
+
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[Math.min(pts.length - 1, i + 1)];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+
+      const cp1x = p1.x + (p2.x - p0.x) / (6 / tension);
+      const cp1y = p1.y + (p2.y - p0.y) / (6 / tension);
+      const cp2x = p2.x - (p3.x - p1.x) / (6 / tension);
+      const cp2y = p2.y - (p3.y - p1.y) / (6 / tension);
+
+      d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+    }
+
+    return d;
+  }
+
+  function simplifyRDP(points, epsilon) {
+    if (points.length <= 2) return points;
+
+    let maxDist = 0;
+    let maxIdx = 0;
+    const first = points[0];
+    const last = points[points.length - 1];
+
+    for (let i = 1; i < points.length - 1; i++) {
+      const d = pointLineDistance(points[i], first, last);
+      if (d > maxDist) {
+        maxDist = d;
+        maxIdx = i;
+      }
+    }
+
+    if (maxDist > epsilon) {
+      const left = simplifyRDP(points.slice(0, maxIdx + 1), epsilon);
+      const right = simplifyRDP(points.slice(maxIdx), epsilon);
+      return left.slice(0, -1).concat(right);
+    }
+
+    return [first, last];
+  }
+
+  function pointLineDistance(p, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return dist(p, a);
+    let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+    t = Math.max(0, Math.min(1, t));
+    return dist(p, { x: a.x + t * dx, y: a.y + t * dy });
+  }
+
+  // ── Eraser ──
+  function eraseAt(sx, sy) {
+    const pos = screenToCanvas(sx, sy);
+    const radius = state.eraserSize / (2 * state.zoom);
+
+    for (let i = state.paths.length - 1; i >= 0; i--) {
+      const p = state.paths[i];
+      if (!p.element) continue;
+
+      // Check if eraser circle intersects the path
+      // Use path bounding box first for quick rejection
+      const bbox = p.element.getBBox();
+      if (pos.x < bbox.x - radius || pos.x > bbox.x + bbox.width + radius ||
+          pos.y < bbox.y - radius || pos.y > bbox.y + bbox.height + radius) {
+        continue;
+      }
+
+      // Sample points along path and check distance
+      const len = p.element.getTotalLength();
+      const step = Math.max(2, len / 100);
+      for (let t = 0; t <= len; t += step) {
+        const pt = p.element.getPointAtLength(t);
+        if (dist(pos, pt) < radius) {
+          // Remove this path
+          p.element.remove();
+          state.undoStack.push({ type: 'remove', path: p, index: i });
+          state.redoStack = [];
+          state.paths.splice(i, 1);
+          updateUI();
+          saveState();
+          break;
+        }
+      }
+    }
+  }
+
+  // ── Undo / Redo ──
+  function undo() {
+    if (state.undoStack.length === 0) return;
+    const action = state.undoStack.pop();
+
+    if (action.type === 'add') {
+      // Remove the path
+      action.path.element.remove();
+      const idx = state.paths.indexOf(action.path);
+      if (idx >= 0) state.paths.splice(idx, 1);
+      state.redoStack.push(action);
+    } else if (action.type === 'remove') {
+      // Re-add the path
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', action.path.stroke);
+      path.setAttribute('stroke-width', action.path.strokeWidth);
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      path.setAttribute('d', action.path.d);
+      pathsGroup.appendChild(path);
+      action.path.element = path;
+      state.paths.splice(action.index, 0, action.path);
+      state.redoStack.push(action);
+    } else if (action.type === 'clear') {
+      // Restore all paths
+      action.paths.forEach(p => {
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', p.stroke);
+        path.setAttribute('stroke-width', p.strokeWidth);
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        path.setAttribute('d', p.d);
+        pathsGroup.appendChild(path);
+        p.element = path;
+      });
+      state.paths = [...action.paths];
+      state.redoStack.push(action);
+    }
+
+    updateUI();
+    saveState();
+  }
+
+  function redo() {
+    if (state.redoStack.length === 0) return;
+    const action = state.redoStack.pop();
+
+    if (action.type === 'add') {
+      // Re-add the path
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', action.path.stroke);
+      path.setAttribute('stroke-width', action.path.strokeWidth);
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      path.setAttribute('d', action.path.d);
+      pathsGroup.appendChild(path);
+      action.path.element = path;
+      state.paths.push(action.path);
+      state.undoStack.push(action);
+    } else if (action.type === 'remove') {
+      // Remove the path again
+      action.path.element.remove();
+      const idx = state.paths.indexOf(action.path);
+      if (idx >= 0) state.paths.splice(idx, 1);
+      state.undoStack.push(action);
+    } else if (action.type === 'clear') {
+      state.paths.forEach(p => p.element && p.element.remove());
+      state.paths = [];
+      state.undoStack.push(action);
+    }
+
+    updateUI();
+    saveState();
+  }
+
+  // ── Clear ──
+  function clearCanvas() {
+    if (state.paths.length === 0) return;
+    // Save for undo
+    const oldPaths = state.paths.map(p => ({ ...p }));
+    state.undoStack.push({ type: 'clear', paths: oldPaths });
+    state.redoStack = [];
+
+    state.paths.forEach(p => p.element && p.element.remove());
+    state.paths = [];
+
+    updateUI();
+    saveState();
+    showToast('Canvas cleared');
+  }
+
+  // ── Export SVG ──
+  function exportSVG() {
+    // Build clean SVG
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    svg.setAttribute('width', state.canvasW);
+    svg.setAttribute('height', state.canvasH);
+    svg.setAttribute('viewBox', `0 0 ${state.canvasW} ${state.canvasH}`);
+
+    // White background
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('width', '100%');
+    bg.setAttribute('height', '100%');
+    bg.setAttribute('fill', 'white');
+    svg.appendChild(bg);
+
+    state.paths.forEach(p => {
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', p.d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', p.stroke);
+      path.setAttribute('stroke-width', p.strokeWidth);
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(path);
+    });
+
+    const svgString = new XMLSerializer().serializeToString(svg);
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `inkpath_${new Date().toISOString().slice(0, 10)}.svg`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast('SVG exported ✓');
+  }
+
+  // ── Load SVG ──
+  function loadSVG(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(ev.target.result, 'image/svg+xml');
+      const svgEl = doc.querySelector('svg');
+      if (!svgEl) {
+        showToast('Invalid SVG file');
+        return;
+      }
+
+      // Clear existing
+      state.paths.forEach(p => p.element && p.element.remove());
+      state.paths = [];
+      state.undoStack = [];
+      state.redoStack = [];
+
+      // Import paths
+      const importedPaths = svgEl.querySelectorAll('path');
+      importedPaths.forEach(imp => {
+        const d = imp.getAttribute('d');
+        if (!d) return;
+
+        const stroke = imp.getAttribute('stroke') || state.strokeColor;
+        const sw = parseFloat(imp.getAttribute('stroke-width')) || state.strokeWidth;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', stroke);
+        path.setAttribute('stroke-width', sw);
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        pathsGroup.appendChild(path);
+
+        state.paths.push({
+          d,
+          stroke,
+          strokeWidth: sw,
+          element: path,
+          id: Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+        });
+      });
+
+      // Update canvas size from loaded SVG
+      const w = parseInt(svgEl.getAttribute('width')) || state.canvasW;
+      const h = parseInt(svgEl.getAttribute('height')) || state.canvasH;
+      state.canvasW = w;
+      state.canvasH = h;
+      canvas.setAttribute('width', w);
+      canvas.setAttribute('height', h);
+
+      updateUI();
+      saveState();
+      showToast(`Loaded ${state.paths.length} paths`);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
+  // ── Persistence ──
+  function saveState() {
+    const data = {
+      paths: state.paths.map(p => ({
+        d: p.d,
+        stroke: p.stroke,
+        strokeWidth: p.strokeWidth,
+        id: p.id,
+      })),
+      strokeWidth: state.strokeWidth,
+      strokeColor: state.strokeColor,
+      smoothing: state.smoothing,
+      canvasW: state.canvasW,
+      canvasH: state.canvasH,
+    };
+    try {
+      localStorage.setItem('inkpath_save', JSON.stringify(data));
+      $('status-saved').textContent = 'Saved';
+    } catch (e) {
+      $('status-saved').textContent = 'Save failed';
+    }
+  }
+
+  function loadState() {
+    try {
+      const raw = localStorage.getItem('inkpath_save');
+      if (!raw) return;
+      const data = JSON.parse(raw);
+
+      state.strokeWidth = data.strokeWidth || 2;
+      state.strokeColor = data.strokeColor || '#e8e8ec';
+      state.smoothing = data.smoothing || 50;
+      state.canvasW = data.canvasW || 2048;
+      state.canvasH = data.canvasH || 1536;
+
+      // Update UI controls
+      $('stroke-width').value = state.strokeWidth;
+      $('stroke-width-val').textContent = state.strokeWidth;
+      $('smoothing').value = state.smoothing;
+      $('smoothing-val').textContent = state.smoothing;
+      $('stroke-color').value = state.strokeColor;
+      $('color-well').style.backgroundColor = state.strokeColor;
+
+      canvas.setAttribute('width', state.canvasW);
+      canvas.setAttribute('height', state.canvasH);
+
+      // Restore paths
+      if (data.paths) {
+        data.paths.forEach(p => {
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', p.d);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', p.stroke);
+          path.setAttribute('stroke-width', p.strokeWidth);
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
+          pathsGroup.appendChild(path);
+
+          state.paths.push({
+            ...p,
+            element: path,
+          });
+        });
+      }
+
+      updateUI();
+    } catch (e) {
+      console.warn('Failed to load saved state', e);
+    }
+  }
+
+  // ── Keyboard Shortcuts ──
+  document.addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey) {
+      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      if (e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
+      if (e.key === 'Z') { e.preventDefault(); redo(); }
+      if (e.key === 's') { e.preventDefault(); saveState(); showToast('Saved'); }
+      if (e.key === 'e') { e.preventDefault(); exportSVG(); }
+    }
+    if (e.key === 'p' || e.key === 'b') setTool('pen');
+    if (e.key === 'e' && !e.metaKey && !e.ctrlKey) setTool('eraser');
+  });
+
+  // ── Utilities ──
+  function dist(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  function midpoint(a, b) {
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  function updateUI() {
+    $('btn-undo').disabled = state.undoStack.length === 0;
+    $('btn-redo').disabled = state.redoStack.length === 0;
+    $('status-paths').textContent = `Paths: ${state.paths.length}`;
+  }
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => toast.classList.remove('show'), 2000);
+  }
+
+  // ── Init ──
+  loadState();
+  updateTransform();
+  updateUI();
+
+  // Center canvas initially
+  const rect = container.getBoundingClientRect();
+  state.panX = (rect.width - state.canvasW) / 2;
+  state.panY = (rect.height - state.canvasH) / 2;
+  updateTransform();
+
+  showToast('Inkpath ready — Use Apple Pencil to draw');
+})();
+</script>
+</body>
+</html>
