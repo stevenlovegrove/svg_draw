@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
 <title>Inkpath — SVG Drawing Studio</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -24,7 +28,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
   html, body {
-    width: 100%; height: 100%;
+    width: 100%; height: 100dvh;
     overflow: hidden;
     background: var(--bg);
     color: var(--text);
@@ -313,6 +317,12 @@
 
   <span class="spacer"></span>
 
+  <button class="tool-btn" id="btn-fullscreen" title="Fullscreen (F)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+    </svg>
+  </button>
+
   <button class="action-btn" id="btn-clear" title="Clear Canvas">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -526,8 +536,6 @@
         const pts = [...state.activeTouches.values()];
         state.lastPinchDist = dist(pts[0], pts[1]);
         state.lastPinchCenter = midpoint(pts[0], pts[1]);
-      } else if (state.activeTouches.size === 1) {
-        state.lastPanPos = { x: e.clientX, y: e.clientY };
       }
     }
 
@@ -595,12 +603,6 @@
         state.lastPinchCenter = newCenter;
 
         updateTransform();
-      } else if (state.activeTouches.size === 1 && !state.gestureActive && state.lastPanPos) {
-        // Single finger pan
-        state.panX += e.clientX - state.lastPanPos.x;
-        state.panY += e.clientY - state.lastPanPos.y;
-        state.lastPanPos = { x: e.clientX, y: e.clientY };
-        updateTransform();
       }
     }
   }
@@ -618,10 +620,6 @@
       state.activeTouches.delete(e.pointerId);
       if (state.activeTouches.size < 2) {
         state.gestureActive = false;
-        if (state.activeTouches.size === 1) {
-          const remaining = [...state.activeTouches.values()][0];
-          state.lastPanPos = { x: remaining.x, y: remaining.y };
-        }
       }
     }
   }
@@ -706,27 +704,40 @@
     saveState();
   }
 
-  // ── Smoothing: Catmull-Rom to Cubic Bezier ──
+  // ── Smoothing: Moving Average + RDP + Catmull-Rom to Cubic Bezier ──
+  function movingAverageSmooth(points, windowSize) {
+    if (windowSize <= 1 || points.length < 3) return points;
+    const half = Math.floor(windowSize / 2);
+    const result = [points[0]];
+    for (let i = 1; i < points.length - 1; i++) {
+      let sumX = 0, sumY = 0, count = 0;
+      for (let j = Math.max(0, i - half); j <= Math.min(points.length - 1, i + half); j++) {
+        sumX += points[j].x;
+        sumY += points[j].y;
+        count++;
+      }
+      result.push({ x: sumX / count, y: sumY / count, pressure: points[i].pressure });
+    }
+    result.push(points[points.length - 1]);
+    return result;
+  }
+
   function buildSmoothPath(points, smoothFactor) {
     if (points.length < 2) {
       return `M ${points[0].x} ${points[0].y}`;
     }
 
-    // Subsample if too many points
-    let pts = points;
-    if (pts.length > 4 && smoothFactor > 0) {
-      const step = Math.max(1, Math.floor(1 + smoothFactor * 3));
-      const sampled = [pts[0]];
-      for (let i = step; i < pts.length - 1; i += step) {
-        sampled.push(pts[i]);
-      }
-      sampled.push(pts[pts.length - 1]);
-      pts = sampled;
+    let pts = [...points];
+
+    // Stage 1: Moving average to reduce jitter (preserves point density)
+    if (smoothFactor > 0 && pts.length > 3) {
+      const windowSize = Math.max(1, Math.round(1 + smoothFactor * 6));
+      pts = movingAverageSmooth(pts, windowSize);
     }
 
-    // Apply Ramer-Douglas-Peucker simplification
-    if (smoothFactor > 0) {
-      const epsilon = smoothFactor * 3;
+    // Stage 2: RDP simplification to reduce point count while preserving shape
+    if (smoothFactor > 0 && pts.length > 2) {
+      const epsilon = smoothFactor * 1.5;
       pts = simplifyRDP(pts, epsilon);
     }
 
@@ -735,12 +746,11 @@
     }
 
     if (pts.length === 2) {
-      return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
+      return `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)} L ${pts[1].x.toFixed(2)} ${pts[1].y.toFixed(2)}`;
     }
 
-    // Build cubic bezier using Catmull-Rom
+    // Stage 3: Catmull-Rom to cubic Bezier conversion
     let d = `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`;
-    const tension = 1 - smoothFactor * 0.5;
 
     for (let i = 0; i < pts.length - 1; i++) {
       const p0 = pts[Math.max(0, i - 1)];
@@ -748,10 +758,11 @@
       const p2 = pts[Math.min(pts.length - 1, i + 1)];
       const p3 = pts[Math.min(pts.length - 1, i + 2)];
 
-      const cp1x = p1.x + (p2.x - p0.x) / (6 / tension);
-      const cp1y = p1.y + (p2.y - p0.y) / (6 / tension);
-      const cp2x = p2.x - (p3.x - p1.x) / (6 / tension);
-      const cp2y = p2.y - (p3.y - p1.y) / (6 / tension);
+      // Standard Catmull-Rom (tau=0.5) to cubic Bezier: divisor = 6
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
 
       d += ` C ${cp1x.toFixed(2)} ${cp1y.toFixed(2)}, ${cp2x.toFixed(2)} ${cp2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
     }
@@ -1110,7 +1121,50 @@
     }
     if (e.key === 'p' || e.key === 'b') setTool('pen');
     if (e.key === 'e' && !e.metaKey && !e.ctrlKey) setTool('eraser');
+    if (e.key === 'f' && !e.metaKey && !e.ctrlKey) toggleFullscreen();
   });
+
+  // ── Fullscreen ──
+  $('btn-fullscreen').addEventListener('click', toggleFullscreen);
+
+  function isIPad() {
+    return navigator.maxTouchPoints > 1 &&
+      /Macintosh|iPad/.test(navigator.userAgent);
+  }
+
+  function isStandalone() {
+    return window.navigator.standalone === true ||
+      window.matchMedia('(display-mode: standalone)').matches;
+  }
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      return;
+    }
+
+    const el = document.documentElement;
+    if (el.requestFullscreen) {
+      el.requestFullscreen().catch(() => showFullscreenHint());
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+    } else {
+      showFullscreenHint();
+    }
+  }
+
+  function showFullscreenHint() {
+    if (isIPad()) {
+      showToast('Tap Share \u2192 Add to Home Screen for fullscreen mode');
+    } else {
+      showToast('Fullscreen not supported in this browser');
+    }
+  }
+
+  // Hide fullscreen button if already in standalone PWA mode
+  if (isStandalone()) {
+    $('btn-fullscreen').style.display = 'none';
+  }
 
   // ── Utilities ──
   function dist(a, b) {
