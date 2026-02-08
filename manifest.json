@@ -1,0 +1,9 @@
+{
+  "name": "Inkpath — SVG Drawing Studio",
+  "short_name": "Inkpath",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1a1a1e",
+  "theme_color": "#1a1a1e"
+}
